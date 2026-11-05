@@ -12,7 +12,12 @@ export function connectivityModeFromAtomInt(value: number): ConnectivityMode {
   return "unknown"
 }
 
-const HEADER = Buffer.from("1001000345", "hex")
+/**
+ * reassembled atom payload header (not the 3-byte notification fragment header).
+ * a single-fragment notification is `10 01 00` + this payload; that prefix is
+ * stripped before parse. see AtomNotificationReceiver.
+ */
+const HEADER = Buffer.from("0345", "hex")
 
 function mapGet(obj: unknown, key: number): unknown {
   if (obj instanceof Map) {
@@ -61,31 +66,35 @@ export class AtomResponse {
   }
 
   parse(): SensorMap | null {
-    if (!this.response.subarray(0, 5).equals(HEADER)) {
+    if (this.response.length < 2 || !this.response.subarray(0, 2).equals(HEADER)) {
       this.logger.error(
-        `Invalid response header, expected ${HEADER.toString("hex")}, but got ${this.response.subarray(0, 5).toString("hex")}`,
+        `Invalid response header, expected ${HEADER.toString("hex")}, but got ${this.response.subarray(0, Math.min(2, this.response.length)).toString("hex")}`,
       )
       throw new Error("Invalid response header")
     }
 
-    if (!this.response.subarray(5, 7).equals(this.randomBytes)) {
+    if (this.response.length < 4 || !this.response.subarray(2, 4).equals(this.randomBytes)) {
       this.logger.debug(
-        `Invalid response checksum, expected ${this.randomBytes.toString("hex")}, but got ${this.response.subarray(5, 7).toString("hex")}`,
+        `Invalid response checksum, expected ${this.randomBytes.toString("hex")}, but got ${this.response.subarray(2, Math.min(4, this.response.length)).toString("hex")}`,
       )
       throw new Error("Invalid response checksum")
     }
 
-    if (this.response[7] !== 0x81) {
-      this.logger.debug(`Invalid response type, expected 81, but got ${this.response[7]}`)
+    if (this.response.length < 6) {
+      throw new Error("Response too short")
+    }
+
+    if (this.response[4] !== 0x81) {
+      this.logger.debug(`Invalid response type, expected 81, but got ${this.response[4]}`)
       throw new Error("Invalid response type")
     }
 
-    if (this.response[8] !== 0xa2) {
-      this.logger.debug(`Invalid response array length, expected 2, but got ${this.response[8]}`)
+    if (this.response[5] !== 0xa2) {
+      this.logger.debug(`Invalid response array length, expected 2, but got ${this.response[5]}`)
       throw new Error("Invalid response array length")
     }
 
-    const dataBytes = this.response.subarray(7)
+    const dataBytes = this.response.subarray(4)
     const decodedData = cbor.decodeFirstSync(dataBytes)
 
     if (!Array.isArray(decodedData)) {
