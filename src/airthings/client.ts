@@ -58,7 +58,12 @@ import {
   UPDATE_TIMEOUT_MS,
   VOC,
 } from "./const.js"
-import { AtomCommandDecode, getCommandDecoder, type LoggerLike } from "./commandDecode.js"
+import {
+  AtomCommandDecode,
+  AtomNotificationReceiver,
+  getCommandDecoder,
+  type LoggerLike,
+} from "./commandDecode.js"
 import { AtomRequestPath } from "./atom/requestPath.js"
 import {
   AirthingsDeviceType,
@@ -100,10 +105,11 @@ const SENSOR_CHAR_UUIDS = new Set(
   ].map((u) => uuidKey(u)),
 )
 
-/** settle window after last atom notify packet before treating payload as complete */
-const ATOM_NOTIFY_SETTLE_MS = 150
 const CONNECT_SETTLE_MS = 1_500
 const POST_TIMEOUT_WORK_WAIT_MS = UPDATE_TIMEOUT_MS
+/** match govee-ble so a hung bluez reply cannot hold the shared adapter lock */
+const DISCONNECT_TIMEOUT_MS = 2_000
+const STOP_NOTIFY_TIMEOUT_MS = 2_000
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -126,13 +132,40 @@ async function connectDevice(device: NodeBleDevice): Promise<void> {
   await sleep(CONNECT_SETTLE_MS)
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms)
+  })
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer)
+  })
+}
+
 async function disconnectDevice(device: NodeBleDevice): Promise<void> {
   // always try disconnect — cancels an in-progress bluez Connect that has not
   // flipped Connected=true yet (e.g. after a wall-clock timeout).
+  // bound the wait: a wedged dbus reply must not hold the shared adapter lock.
   try {
-    await device.disconnect()
+    await withTimeout(
+      device.disconnect(),
+      DISCONNECT_TIMEOUT_MS,
+      "disconnect timed out",
+    )
   } catch {
-    // ignore disconnect errors
+    // ignore disconnect errors and hung bluez replies
+  }
+}
+
+async function stopNotifications(char: NodeBleGattCharacteristic): Promise<void> {
+  try {
+    await withTimeout(
+      char.stopNotifications(),
+      STOP_NOTIFY_TIMEOUT_MS,
+      "stop notifications timed out",
+    )
+  } catch {
+    // ignore
   }
 }
 
@@ -268,9 +301,6 @@ export class AirthingsClient {
 
       await this.readDeviceInfo(byUuid, airthings, generation)
       this.assertGeneration(generation)
-      if (airthings.model === AirthingsDeviceType.UNKNOWN) {
-        throw new UnsupportedDeviceError("Model is not supported")
-      }
 
       if (isAtomDevice(airthings.model)) {
         this.warnIfFirmwareOutdated(airthings)
@@ -355,8 +385,15 @@ export class AirthingsClient {
     generation: number,
   ): Promise<void> {
     const modelRaw = await this.readString(byUuid, CHAR_UUID_MODEL_NUMBER_STRING, generation)
-    if (modelRaw) {
-      device.model = deviceTypeFromRaw(modelRaw)
+    // a missing read is a transport failure and must be retried. only a
+    // present, unrecognized model string is an unsupported device — that
+    // path removes the accessory from the poll set.
+    if (!modelRaw) {
+      throw new Error("Model number was not read")
+    }
+    device.model = deviceTypeFromRaw(modelRaw)
+    if (device.model === AirthingsDeviceType.UNKNOWN) {
+      throw new UnsupportedDeviceError(`Model ${modelRaw} is not supported`)
     }
 
     const manufacturer = await this.readString(byUuid, CHAR_UUID_MANUFACTURER_NAME, generation)
@@ -460,11 +497,7 @@ export class AirthingsClient {
       return decoder.decodeData(this.logger, receiver.message)
     } finally {
       char.removeListener("valuechanged", onData)
-      try {
-        await char.stopNotifications()
-      } catch {
-        // ignore
-      }
+      await stopNotifications(char)
     }
   }
 
@@ -514,18 +547,9 @@ export class AirthingsClient {
   ): Promise<SensorMap | null> {
     this.assertGeneration(generation)
     const decoder = new AtomCommandDecode(path)
-    const state: { message: Buffer | null, lastPacketAt: number } = {
-      message: null,
-      lastPacketAt: 0,
-    }
-
+    const receiver = new AtomNotificationReceiver()
     const onData = (data: Buffer) => {
-      state.lastPacketAt = Date.now()
-      if (state.message === null) {
-        state.message = Buffer.from(data)
-      } else {
-        state.message = Buffer.concat([state.message, data])
-      }
+      receiver.push(data)
     }
 
     notifyCharRef.on("valuechanged", onData)
@@ -538,27 +562,21 @@ export class AirthingsClient {
       const deadline = Date.now() + COMMAND_TIMEOUT_MS
       while (Date.now() < deadline) {
         this.assertGeneration(generation)
-        if (state.message && state.message.length >= 9) {
-          if (Date.now() - state.lastPacketAt >= ATOM_NOTIFY_SETTLE_MS) {
-            break
-          }
+        if (receiver.complete) {
+          break
         }
         await sleep(40)
       }
 
       this.assertGeneration(generation)
-      if (!state.message) {
+      if (!receiver.message) {
         this.logger.warn("Timeout getting atom command data.")
         return null
       }
-      return decoder.decodeData(this.logger, state.message)
+      return decoder.decodeData(this.logger, receiver.message)
     } finally {
       notifyCharRef.removeListener("valuechanged", onData)
-      try {
-        await notifyCharRef.stopNotifications()
-      } catch {
-        // ignore
-      }
+      await stopNotifications(notifyCharRef)
     }
   }
 

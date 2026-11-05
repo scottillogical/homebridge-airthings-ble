@@ -71,6 +71,103 @@ export class NotificationReceiver {
   }
 }
 
+const ATOM_FRAGMENT_HEADER_SIZE = 3
+
+/**
+ * reassemble an atom notify stream.
+ *
+ * every notification starts with a 3-byte fragment header. the low nibble of
+ * the control byte is the fragmentation version, bit 4 marks the first
+ * fragment, and the top three bits identify the response. the next two
+ * little-endian bytes are the fragment count on the first fragment and the
+ * 1-based position on the others.
+ *
+ * bluez's default att mtu is 23, so notifications are 20 bytes. wave enhance
+ * latest-values replies do not fit in one of those.
+ */
+export class AtomNotificationReceiver {
+  message: Buffer | null = null
+  private readonly fragments = new Map<number, Map<number, Buffer>>()
+  private fragmentCount = 0
+  private objectId: number | null = null
+  private resolveWait: (() => void) | null = null
+  private timer: NodeJS.Timeout | null = null
+
+  get complete(): boolean {
+    return this.message !== null
+  }
+
+  push(data: Buffer): void {
+    if (this.message !== null || data.length < ATOM_FRAGMENT_HEADER_SIZE) {
+      return
+    }
+    const control = data[0]
+    if (control & 0x0f) {
+      return
+    }
+    const objectId = control & 0xe0
+    if (this.objectId !== null && objectId !== this.objectId) {
+      return
+    }
+    const number = data.readUInt16LE(1)
+    let bucket = this.fragments.get(objectId)
+    if (!bucket) {
+      bucket = new Map()
+      this.fragments.set(objectId, bucket)
+    }
+    const payload = Buffer.from(data.subarray(ATOM_FRAGMENT_HEADER_SIZE))
+    if (control & 0x10) {
+      this.objectId = objectId
+      this.fragmentCount = number
+      bucket.set(1, payload)
+    } else if (number > 1) {
+      bucket.set(number, payload)
+    }
+    if (this.objectId === null) {
+      return
+    }
+    const parts = this.fragments.get(this.objectId)
+    if (!parts || this.fragmentCount < 1) {
+      return
+    }
+    const chunks: Buffer[] = []
+    for (let position = 1; position <= this.fragmentCount; position++) {
+      const chunk = parts.get(position)
+      if (!chunk) {
+        return
+      }
+      chunks.push(chunk)
+    }
+    this.message = Buffer.concat(chunks)
+    if (this.resolveWait) {
+      this.clearTimer()
+      const resolve = this.resolveWait
+      this.resolveWait = null
+      resolve()
+    }
+  }
+
+  private clearTimer(): void {
+    if (this.timer) {
+      clearTimeout(this.timer)
+      this.timer = null
+    }
+  }
+
+  waitForMessage(timeoutSec: number): Promise<void> {
+    if (this.complete) {
+      return Promise.resolve()
+    }
+    return new Promise((resolve, reject) => {
+      this.resolveWait = resolve
+      this.timer = setTimeout(() => {
+        this.resolveWait = null
+        reject(new Error("Timeout waiting for message"))
+      }, timeoutSec * 1000)
+    })
+  }
+}
+
 export abstract class CommandDecode {
   cmd: Buffer = Buffer.from([0x6d])
   formatTypeSize = 0

@@ -105,7 +105,7 @@ describe("atom request/response", () => {
     const response = new AtomResponse(
       silentLogger,
       Buffer.from(
-        "1001000345a1b281a2006d32393939392f302f333130313202583ea9634e4f49"
+        "0345a1b281a2006d32393939392f302f333130313202583ea9634e4f49"
         + "182763544d501972f06348554d190d2f63434f321902dc63564f43190115634c5"
         + "55801635052531a005f364663424154190b346354494d1876",
         "hex",
@@ -130,7 +130,7 @@ describe("atom request/response", () => {
     const response = new AtomResponse(
       silentLogger,
       Buffer.from(
-        "1001000345CCA481A2006D32393939392F302F3331303132025831A863523234"
+        "0345CCA481A2006D32393939392F302F3331303132025831A863523234"
         + "0363523744076352333007635231591263544D501973D76348554D190D8C63424"
         + "154190B816354494D19061D",
         "hex",
@@ -153,7 +153,7 @@ describe("atom request/response", () => {
     const random = Buffer.from("5F93", "hex")
     const response = new AtomResponse(
       silentLogger,
-      Buffer.from("10010003455F9381A2006A31372F302F33313130300204", "hex"),
+      Buffer.from("03455F9381A2006A31372F302F33313130300204", "hex"),
       random,
       AtomRequestPath.CONNECTIVITY_MODE,
     )
