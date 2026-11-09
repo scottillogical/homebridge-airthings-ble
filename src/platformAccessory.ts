@@ -1,3 +1,5 @@
+import { RadonAlert } from "./radonAlert.js"
+import { RADON_1DAY_BQ } from "./airthings/const.js"
 import type {
   CharacteristicValue,
   PlatformAccessory,
@@ -25,6 +27,7 @@ import { productName } from "./airthings/deviceType.js"
  * services are created based on sensors present after the first successful poll.
  */
 export class AirthingsPlatformAccessory {
+  private readonly radonAlert: RadonAlert
   private temperatureService?: Service
   private humidityService?: Service
   private co2Service?: Service
@@ -44,6 +47,7 @@ export class AirthingsPlatformAccessory {
       displayName: string
       address: string
     }
+    this.radonAlert = new RadonAlert(platform, accessory)
     this.co2AlertThreshold = Math.max(
       400,
       Math.min(5000, this.platform.config.co2AlertThreshold ?? 1000),
@@ -99,6 +103,7 @@ export class AirthingsPlatformAccessory {
   }
 
   update(device: AirthingsDevice): void {
+    this.radonAlert.update(device.sensors[RADON_1DAY_BQ], device.model)
     // merge sensor keys so a partial poll does not wipe last good values for onGet
     const merged: AirthingsDevice = this.lastDevice
       ? {

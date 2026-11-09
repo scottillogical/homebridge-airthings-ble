@@ -4,7 +4,7 @@
   "singular": true,
   "strictValidation": false,
   "headerDisplay": "Homebridge plugin for Airthings Wave / Corentium devices over Bluetooth LE. Protocol based on the [official Airthings BLE library](https://github.com/Airthings/airthings-ble).",
-  "footerDisplay": "Requires BlueZ (D-Bus) and a working Bluetooth adapter — uses node-ble, not raw HCI. On Raspberry Pi, ensure the Homebridge user can access org.bluez. Radon is exposed via custom characteristics and mapped to HomeKit Air Quality.",
+  "footerDisplay": "Requires BlueZ (D-Bus) and a working Bluetooth adapter \u2014 uses node-ble, not raw HCI. On Raspberry Pi, ensure the Homebridge user can access org.bluez. Radon is exposed via custom characteristics and mapped to HomeKit Air Quality.",
   "schema": {
     "type": "object",
     "properties": {
@@ -32,15 +32,15 @@
         "title": "Metric units for radon",
         "type": "boolean",
         "default": true,
-        "description": "When true, radon is reported in Bq/m³. When false, pCi/L."
+        "description": "When true, radon is reported in Bq/m\u00b3. When false, pCi/L."
       },
       "co2AlertThreshold": {
-        "title": "CO₂ alert threshold (ppm)",
+        "title": "CO\u2082 alert threshold (ppm)",
         "type": "integer",
         "default": 1000,
         "minimum": 400,
         "maximum": 5000,
-        "description": "HomeKit Carbon Dioxide Detected is abnormal when CO₂ is at or above this level. Devices do not expose a threshold over BLE."
+        "description": "HomeKit Carbon Dioxide Detected is abnormal when CO\u2082 is at or above this level. Devices do not expose a threshold over BLE."
       },
       "hciDeviceId": {
         "title": "Bluetooth adapter ID",
@@ -78,6 +78,18 @@
             }
           }
         }
+      },
+      "radonAlertThreshold": {
+        "title": "Radon alert trigger (Bq/m\u00b3)",
+        "type": "number",
+        "exclusiveMinimum": 0,
+        "description": "Optional. Configure both thresholds to enable a High Radon leak sensor on radon devices. Trigger at or above this rolling average, independent of isMetric."
+      },
+      "radonAlertResetThreshold": {
+        "title": "Radon alert reset (Bq/m\u00b3)",
+        "type": "number",
+        "exclusiveMinimum": 0,
+        "description": "Optional. Must be positive and strictly below the trigger; clear at or below this rolling average. Apple controls leak notification wording."
       }
     }
   },
@@ -99,6 +111,14 @@
         "scanDuration",
         "co2AlertThreshold",
         "hciDeviceId"
+      ]
+    },
+    {
+      "type": "flex",
+      "flex-flow": "row wrap",
+      "items": [
+        "radonAlertThreshold",
+        "radonAlertResetThreshold"
       ]
     },
     {

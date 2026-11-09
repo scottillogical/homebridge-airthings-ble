@@ -91,3 +91,6 @@ export const VOC = "voc"
 
 export type SensorValue = string | number | null | undefined
 export type SensorMap = Record<string, SensorValue>
+
+/** Internal unconverted reading, present only when this poll read radon. */
+export const RADON_1DAY_BQ = "radon_1day_bq"

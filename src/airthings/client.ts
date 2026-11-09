@@ -1,3 +1,4 @@
+import { RADON_1DAY_BQ } from "./const.js"
 import {
   ATOM_BAT,
   ATOM_CO2,
@@ -630,6 +631,7 @@ export class AirthingsClient {
       return
     }
     const bq = Number(raw)
+    if (avgKey === RADON_1DAY_AVG) target[RADON_1DAY_BQ] = bq
     target[avgKey] = this.isMetric ? bq : bq * BQ_TO_PCI_MULTIPLIER
     target[levelKey] = getRadonLevel(bq)
   }
@@ -637,6 +639,7 @@ export class AirthingsClient {
   private applyRadonUnits(sensors: SensorMap, sensorData: SensorMap): void {
     if (sensorData[RADON_1DAY_AVG] !== undefined && sensorData[RADON_1DAY_AVG] !== null) {
       const bq = Number(sensorData[RADON_1DAY_AVG])
+      sensors[RADON_1DAY_BQ] = bq
       sensors[RADON_1DAY_LEVEL] = getRadonLevel(bq)
       if (!this.isMetric) {
         sensors[RADON_1DAY_AVG] = bq * BQ_TO_PCI_MULTIPLIER

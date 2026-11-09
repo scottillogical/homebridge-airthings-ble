@@ -36,6 +36,9 @@ export interface AirthingsPlatformConfig extends PlatformConfig {
   isMetric?: boolean
   /** ppm; CarbonDioxideDetected is abnormal at or above this (default 1000) */
   co2AlertThreshold?: number
+  /** Optional alert thresholds, always Bq/m³; both are required. */
+  radonAlertThreshold?: number
+  radonAlertResetThreshold?: number
   /** noble hci adapter index (default 0); lock is shared per adapter with peer ble plugins */
   hciDeviceId?: number
   debug?: boolean
